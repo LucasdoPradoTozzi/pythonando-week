@@ -2,26 +2,34 @@ from django.shortcuts import render, redirect
 from django.http import HttpResponse
 from django.contrib.auth.decorators import login_required
 from .models import TiposExames, PedidosExames, SolicitacaoExame
-from datetime import datetime
+from datetime import date, datetime
 from django.contrib import messages
 from django.contrib.messages import constants
+import locale
 
 @login_required
 def solicitar_exames(request):
     tipo_exames = TiposExames.objects.all()
+    
+    #Obtém a data atual
+    data_atual = date.today()
+    # Configura o locale para sua localidade
+    locale.setlocale(locale.LC_ALL, '')
+    #Converte a data para o formato desejado
+    data_formatada = data_atual.strftime('%d de %B de %Y')
+    
     if request.method == "GET":
         return render(request, 'solicitar_exames.html', {'tipos_exames': tipo_exames})
     elif request.method == "POST":
         exames_id = request.POST.getlist('exames')
         solicitacao_exames = TiposExames.objects.filter(id__in=exames_id)
 
-        #TODO calcular preço dos exames disponiveis
         preco_total = 0
         for i in solicitacao_exames:
             if i.disponivel:
                 preco_total += i.preco
 
-        return render(request, 'solicitar_exames.html', {'tipos_exames': tipo_exames, 'solicitacao_exames': solicitacao_exames, 'preco_total': preco_total})
+        return render(request, 'solicitar_exames.html', {'data_atual': data_formatada, 'tipos_exames': tipo_exames, 'solicitacao_exames': solicitacao_exames, 'preco_total': preco_total})
 
 @login_required
 def fechar_pedido(request):
@@ -74,9 +82,14 @@ def gerenciar_exames(request):
 @login_required
 def permitir_abrir_exame(request, exame_id):
     exame = SolicitacaoExame.objects.get(id=exame_id)
-
-    if not exame.requer_senha:
+    if not exame.usuario == request.user:
+            messages.add_message(request, constants.ERROR, 'Este exame não é seu!')
+            return redirect(f'/exames/solicitar_senha_exame/{exame.id}')
+    elif not exame.requer_senha:
         #veficiar se tem o pdf do resultado
+        if not exame.resultado:
+            messages.add_message(request, constants.ERROR, 'Ainda não foi cadastrado o seu resultado, entre em contato com o laboratório.')
+            return(redirect('/exames/gerenciar_exames'))
         return redirect(exame.resultado.url)
     
     return redirect(f'/exames/solicitar_senha_exame/{exame_id}')
@@ -89,7 +102,13 @@ def solicitar_senha_exame(request, exame_id):
     elif request.method == "POST":
         senha = request.POST.get("senha")
 				#TODO: validar se o exame é do usuário
-        if senha == exame.senha:
+        if not exame.usuario == request.user:
+            messages.add_message(request, constants.ERROR, 'Este exame não é seu!')
+            return redirect(f'/exames/solicitar_senha_exame/{exame.id}')
+        elif senha == exame.senha:
+            if not exame.resultado:
+                messages.add_message(request, constants.ERROR, 'Ainda não foi cadastrado o seu resultado, entre em contato com o laboratório.')
+                return(redirect('/exames/gerenciar_exames'))
             return redirect(exame.resultado.url)
         else:
             messages.add_message(request, constants.ERROR, 'Senha inválida')
